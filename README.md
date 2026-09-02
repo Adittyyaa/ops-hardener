@@ -1,80 +1,30 @@
 # ops-hardener 🛡️
 
-A powerful, LLM-driven CLI tool that scans Dockerfiles and Kubernetes YAML manifests for security vulnerabilities, misconfigurations, and performance anti-patterns.
+**ops-hardener** is an intelligent CLI tool that scans your Dockerfiles and Kubernetes YAML manifests for security vulnerabilities, misconfigurations, and performance anti-patterns. 
 
-It not only flags issues but also generates a completely hardened, best-practice version of your file automatically!
+Unlike traditional linters, it uses an LLM to not only detect issues, but to instantly generate a fully hardened, best-practice version of your code.
 
-## Features
+## How it works
 
-- 🐳 **Dockerfile & K8s Support:** Automatically detects the file type and applies appropriate security context rules.
-- 🧠 **LLM Powered:** Uses the LiteLLM router, allowing you to seamlessly switch between OpenAI, Groq, or local Ollama models.
-- 💅 **Rich Terminal UI:** Beautiful color-coded tables, scores, and loading spinners.
-- 🛠️ **Auto-Fix:** Automatically write hardened code to a new file using the `--fix` flag.
-- 🔍 **Diff Viewer:** Preview LLM changes directly in your terminal using the `--diff` flag.
+1. **Ingestion:** Run the CLI against a file. It automatically detects whether it's a Dockerfile or a Kubernetes YAML manifest.
+2. **Analysis:** The file is securely passed to an LLM (using the `litellm` router, which supports Groq, OpenAI, or local Ollama). The LLM acts as an expert DevOps engineer, scanning for things like running as root, missing CPU limits, or `privileged: true` flags.
+3. **Structured Reporting:** It returns a strict JSON report which is converted into a beautiful, color-coded terminal UI, complete with a Security Grade (A-F).
+4. **Auto-Fix (Optional):** Use the `--fix` flag to automatically write the LLM's hardened code to a new file, or `--diff` to see a side-by-side terminal diff of the proposed changes.
 
-## Installation
+## Quick Start
 
-1. Clone the repository and navigate into it:
-   ```bash
-   git clone https://github.com/YourUsername/ops-hardener.git
-   cd ops-hardener
-   ```
-2. Create a virtual environment and install the CLI:
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   pip install -e .
-   ```
-3. Set up your API key in a `.env` file in the root directory:
-   ```env
-   # For Groq
-   GROQ_API_KEY=your_key_here
-   
-   # Or for OpenAI
-   OPENAI_API_KEY=your_key_here
-   
-   # Or for local Ollama
-   OLLAMA_HOST=http://localhost:11434
-   ```
-
-## Usage
-
-Run a basic scan:
 ```bash
+# 1. Install
+pip install -e .
+
+# 2. Add your API key to a .env file (e.g., GROQ_API_KEY=your_key)
+echo "GROQ_API_KEY=your_key" > .env
+
+# 3. Scan a file!
 ops-hardener scan Dockerfile
 ```
 
-Specify a custom model (Defaults to `gpt-4o`):
-```bash
-ops-hardener scan deployment.yaml --model groq/llama-3.1-8b-instant
-```
-
-View the proposed changes side-by-side:
-```bash
-ops-hardener scan Dockerfile --diff
-```
-
-Automatically write the hardened code to a new file:
-```bash
-ops-hardener scan Dockerfile --fix
-```
-
-## Security Rules Enforced
-
-**Dockerfiles:**
-- Prohibition of root user execution.
-- Missing multi-stage builds.
-- Floating image tags (e.g., `latest`).
-
-**Kubernetes:**
-- Prohibition of `privileged: true`.
-- Missing `readinessProbe` and `livenessProbe`.
-- Missing CPU/Memory requests and limits.
-- Enforcing `readOnlyRootFilesystem: true`.
-
-## Testing
-To run the test suite:
-```bash
-pip install -e .[dev]
-pytest
-```
+## Powerful Flags
+- **`--model`**: Change the underlying LLM (e.g., `--model groq/llama-3.1-8b-instant`).
+- **`--diff`**: View a beautiful, color-coded unified diff of the suggested changes in your terminal.
+- **`--fix`**: Automatically save the hardened version to `<filename>.hardened`.
