@@ -1,21 +1,41 @@
+import json
+from importlib.metadata import version, PackageNotFoundError
+from pathlib import Path
+
 import typer
-from rich.console import Console
+from dotenv import load_dotenv
+from pydantic import ValidationError
+from rich.progress import Progress, SpinnerColumn, TextColumn
+
 from ops_hardener.core.parser import parse_file
 from ops_hardener.core.analyzer import analyze_file
 from ops_hardener.core.hardener import generate_diff, apply_fix
-from ops_hardener.ui.formatter import print_audit_report
-from rich.progress import Progress, SpinnerColumn, TextColumn
-from pathlib import Path
+from ops_hardener.ui.formatter import console, print_audit_report
+
+# ---------------------------------------------------------------------------
+# load_dotenv belongs here — at the entry point — not buried in analyzer.py
+# as an import-time side effect.
+# ---------------------------------------------------------------------------
+load_dotenv()
+
+# ---------------------------------------------------------------------------
+# Read the version from package metadata so it never diverges from
+# pyproject.toml.  Fall back gracefully if running from source without
+# an editable install.
+# ---------------------------------------------------------------------------
+try:
+    __version__ = version("ops-hardener")
+except PackageNotFoundError:
+    __version__ = "dev"
 
 app = typer.Typer(help="ops-hardener: Security scanner for Dockerfiles and K8s manifests")
-console = Console()
 
-__version__ = "0.1.0"
 
-def version_callback(value: bool):
+def version_callback(value: bool) -> None:
     if value:
         console.print(f"ops-hardener version: {__version__}", style="bold green")
         raise typer.Exit()
+
 
 @app.callback()
 def main(
@@ -25,9 +45,10 @@ def main(
         callback=version_callback,
         is_eager=True,
         help="Show the application's version and exit.",
-    )
-):
+    ),
+) -> None:
     pass
+
 
 @app.command()
 def scan(
@@ -38,40 +59,88 @@ def scan(
         dir_okay=False,
         readable=True,
         resolve_path=True,
-        help="Path to the Dockerfile or Kubernetes YAML manifest to scan."
+        help="Path to the Dockerfile or Kubernetes YAML manifest to scan.",
     ),
-    model: str = typer.Option("gpt-4o", help="LLM model to use (e.g., gpt-4o, ollama/llama3)"),
-    show_diff: bool = typer.Option(False, "--diff", help="Display a side-by-side terminal diff before writing changes."),
-    fix: bool = typer.Option(False, "--fix", help="Automatically write the hardened output to a new file (e.g., Dockerfile.hardened).")
-):
-    """
-    Scan a Dockerfile or Kubernetes YAML manifest.
-    """
+    model: str = typer.Option(
+        "gpt-4o",
+        help="LLM model to use (e.g., gpt-4o, groq/llama3-70b-8192, ollama/llama3).",
+    ),
+    show_diff: bool = typer.Option(
+        False, "--diff", help="Display a unified diff of the hardened changes."
+    ),
+    fix: bool = typer.Option(
+        False, "--fix", help="Write the hardened output to <file>.hardened."
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Overwrite an existing <file>.hardened without prompting.",
+    ),
+) -> None:
+    """Scan a Dockerfile or Kubernetes YAML manifest for security issues."""
     console.print(f"Scanning [bold cyan]{file_path}[/bold cyan]...", style="bold")
+
+    # --- 1. Parse & detect file type ---
     try:
         file_metadata = parse_file(file_path)
-        console.print(f"File Type Detected: [bold green]{file_metadata['file_type']}[/bold green]")
-        
+    except FileNotFoundError as e:
+        console.print(f"[bold red]File not found:[/bold red] {e}")
+        raise typer.Exit(code=1)
+    except ValueError as e:
+        console.print(f"[bold red]Parse error:[/bold red] {e}")
+        raise typer.Exit(code=1)
+
+    console.print(
+        f"File type detected: [bold green]{file_metadata['file_type']}[/bold green]"
+    )
+
+    # --- 2. Analyse with LLM ---
+    try:
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             transient=True,
         ) as progress:
-            progress.add_task(description=f"Analyzing with model [bold yellow]{model}[/bold yellow]...", total=None)
-            report = analyze_file(file_metadata["content"], file_metadata["file_type"], model=model)
-        
-        print_audit_report(report)
-            
-        if show_diff:
-            generate_diff(file_metadata["content"], report.hardened_code, file_path)
-            
-        if fix:
-            new_file_path = apply_fix(file_path, report.hardened_code)
-            console.print(f"\n[bold green]Success![/bold green] Hardened file saved to: {new_file_path}")
-            
-    except Exception as e:
-        console.print(f"Error: {e}", style="bold red")
+            progress.add_task(
+                description=f"Analyzing with [bold yellow]{model}[/bold yellow]...",
+                total=None,
+            )
+            report = analyze_file(
+                file_metadata["content"], file_metadata["file_type"], model=model
+            )
+    except RuntimeError as e:
+        # Network / auth / API-level failure
+        console.print(f"[bold red]LLM error:[/bold red] {e}")
         raise typer.Exit(code=1)
+    except (ValueError, ValidationError) as e:
+        # Bad JSON or schema mismatch in the model response
+        console.print(f"[bold red]Response parsing error:[/bold red] {e}")
+        raise typer.Exit(code=1)
+
+    # --- 3. Print the audit report ---
+    print_audit_report(report)
+
+    # --- 4. Diff / fix (only when hardened_code was returned) ---
+    if report.hardened_code is None:
+        if show_diff or fix:
+            console.print(
+                "\n[bold yellow]⚠ Warning:[/bold yellow] The LLM did not return "
+                "hardened code, so --diff / --fix have been skipped."
+            )
+        return
+
+    if show_diff:
+        generate_diff(file_metadata["content"], report.hardened_code, file_path)
+
+    if fix:
+        new_file_path = apply_fix(file_path, report.hardened_code, force=force)
+        # apply_fix prints the overwrite warning itself; only print success when
+        # the file was actually (re)written.
+        if new_file_path.exists():
+            console.print(
+                f"\n[bold green]✔ Hardened file saved to:[/bold green] {new_file_path}"
+            )
+
 
 if __name__ == "__main__":
     app()
