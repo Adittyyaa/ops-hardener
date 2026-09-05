@@ -31,10 +31,7 @@ def print_audit_report(report: AuditReport) -> None:
         console.print("\n[bold green]✅ No vulnerabilities or anti-patterns found![/bold green]")
         return
 
-    # ---------------------------------------------------------------------------
-    # Findings table — includes the previously-dropped `description` field so
-    # the user sees the full context for each finding, not just a one-liner.
-    # ---------------------------------------------------------------------------
+    # Findings table
     table = Table(
         title="Security Findings & Recommendations",
         show_header=True,

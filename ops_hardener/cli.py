@@ -12,17 +12,10 @@ from ops_hardener.core.analyzer import analyze_file
 from ops_hardener.core.hardener import generate_diff, apply_fix
 from ops_hardener.ui.formatter import console, print_audit_report
 
-# ---------------------------------------------------------------------------
-# load_dotenv belongs here — at the entry point — not buried in analyzer.py
-# as an import-time side effect.
-# ---------------------------------------------------------------------------
+# Load environment variables at the entry point
 load_dotenv()
 
-# ---------------------------------------------------------------------------
-# Read the version from package metadata so it never diverges from
-# pyproject.toml.  Fall back gracefully if running from source without
-# an editable install.
-# ---------------------------------------------------------------------------
+# Read the version from package metadata
 try:
     __version__ = version("ops-hardener")
 except PackageNotFoundError:
@@ -80,7 +73,6 @@ def scan(
     """Scan a Dockerfile or Kubernetes YAML manifest for security issues."""
     console.print(f"Scanning [bold cyan]{file_path}[/bold cyan]...", style="bold")
 
-    # --- 1. Parse & detect file type ---
     try:
         file_metadata = parse_file(file_path)
     except FileNotFoundError as e:
@@ -94,7 +86,6 @@ def scan(
         f"File type detected: [bold green]{file_metadata['file_type']}[/bold green]"
     )
 
-    # --- 2. Analyse with LLM ---
     try:
         with Progress(
             SpinnerColumn(),
@@ -117,10 +108,8 @@ def scan(
         console.print(f"[bold red]Response parsing error:[/bold red] {e}")
         raise typer.Exit(code=1)
 
-    # --- 3. Print the audit report ---
     print_audit_report(report)
 
-    # --- 4. Diff / fix (only when hardened_code was returned) ---
     if report.hardened_code is None:
         if show_diff or fix:
             console.print(
@@ -134,9 +123,7 @@ def scan(
 
     if fix:
         new_file_path = apply_fix(file_path, report.hardened_code, force=force)
-        # apply_fix prints the overwrite warning itself; only print success when
-        # the file was actually (re)written.
-        if new_file_path.exists():
+        if new_file_path:
             console.print(
                 f"\n[bold green]✔ Hardened file saved to:[/bold green] {new_file_path}"
             )

@@ -33,29 +33,16 @@ def generate_diff(original_content: str, hardened_code: str, file_path: Path) ->
     console.print(syntax)
 
 
-def apply_fix(file_path: Path, hardened_code: str, *, force: bool = False) -> Path:
-    """Write *hardened_code* to ``<file_path>.hardened``.
-
-    Parameters
-    ----------
-    force:
-        When ``False`` (default) and the target file already exists, the user
-        is warned and the existing file is left untouched.  Pass ``True`` (via
-        the ``--force`` CLI flag) to overwrite silently.
-
-    Returns
-    -------
-    Path
-        The path that was written (or that already existed when not forced).
-    """
+def apply_fix(file_path: Path, hardened_code: str, *, force: bool = False) -> Path | None:
+    """Write hardened_code to ``<file_path>.hardened``."""
     new_path = file_path.with_name(f"{file_path.name}.hardened")
 
     if new_path.exists() and not force:
         console.print(
             f"\n[bold yellow]⚠ Warning:[/bold yellow] {new_path} already exists. "
-            "Pass [bold]--force[/bold] to overwrite it.",
+            "Pass [bold]--force[/bold] to overwrite it."
         )
-        return new_path
+        return None
 
     new_path.write_text(hardened_code, encoding="utf-8")
     return new_path

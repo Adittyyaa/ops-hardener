@@ -3,10 +3,6 @@ import re
 from litellm import completion
 from ops_hardener.schemas.audit import AuditReport
 
-# ---------------------------------------------------------------------------
-# Build the system prompt once at module load time.  model_json_schema() is
-# not free — re-calling it on every request was wasteful.
-# ---------------------------------------------------------------------------
 _SCHEMA_JSON: str = json.dumps(AuditReport.model_json_schema(), indent=2)
 
 SYSTEM_PROMPT: str = f"""You are an expert Principal DevOps and Security Engineer.
@@ -28,15 +24,9 @@ Ensure that the JSON output is completely valid and does not contain any markdow
 The 'hardened_code' field should contain the complete rewritten file applying all your recommendations.
 """
 
-# Pre-compiled regex that strips any markdown code fence regardless of the
-# declared language (```json, ```yaml, ``` alone, etc.) and optional leading
-# whitespace / BOM before the fence.
-_CODE_FENCE_RE = re.compile(r"^\s*```[a-zA-Z]*\s*\n?(.*?)\n?\s*```\s*$", re.DOTALL)
-
-
 def _extract_json(raw: str) -> str:
-    """Return the JSON payload from *raw*, stripping markdown fences if present."""
-    match = _CODE_FENCE_RE.match(raw)
+    """Return the JSON payload from raw, stripping markdown fences if present."""
+    match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", raw, re.DOTALL)
     if match:
         return match.group(1).strip()
     return raw.strip()
@@ -67,19 +57,11 @@ def analyze_file(file_content: str, file_type: str, model: str = "gpt-4o") -> Au
     except Exception as e:
         raise RuntimeError(f"LLM API call failed: {e}") from e
 
-    # Collect streamed chunks into a single string.
-    chunks: list[str] = []
     try:
-        for chunk in stream:
-            delta = chunk.choices[0].delta.content
-            if delta:
-                chunks.append(delta)
+        raw_output = "".join(chunk.choices[0].delta.content or "" for chunk in stream)
     except Exception as e:
         raise RuntimeError(f"Error while reading LLM stream: {e}") from e
 
-    raw_output = "".join(chunks)
-
-    # Strip markdown fences the model may return despite explicit instructions.
     json_text = _extract_json(raw_output)
 
     try:
